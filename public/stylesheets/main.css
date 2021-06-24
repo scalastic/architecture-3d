@@ -1,0 +1,95 @@
+  #loading-overlay{
+    position: fixed;
+    z-index: 10;
+    left: 0;
+    top: 0;
+    right: 0;
+    bottom: 0;
+    background: #272f3b;
+    display: flex;
+    flex-direction: column;
+    justify-content: center;
+    opacity: 1;
+    transition: opacity 700ms ease;
+  }
+
+  #loading-overlay *{
+    font-family: Verdana, Geneva, Tahoma, sans-serif;
+    color:#e61898;
+    font-weight: normal;
+  }
+
+  #loading-overlay h1{
+    font-size: 30px;
+    margin: 20px 0;
+  }
+
+  #loading-overlay h2{
+    font-size: 16px;
+  }
+
+  #loading-overlay.fade-out{
+    opacity: 0;
+  }
+
+  #loading-overlay svg{
+    width: 200px;
+  }
+
+  #loading-overlay svg .heart{
+    fill: #e61898;
+    stroke: #e61898;
+    stroke-miterlimit: 10;
+    stroke-width: 0.3;
+    stroke-linecap: round;
+    animation: pulsate 2.5s infinite ease;
+  }
+
+  @keyframes spin {
+    0%   { transform: rotate(0); }
+    100% { transform: rotate(360deg); }
+  }
+
+  @keyframes spin-b {
+    0%   { transform: rotate(0); }
+    100% { transform: rotate(-360deg); }
+  }
+
+  @keyframes pulsate {
+    0%   { opacity: 0.7; }
+    50%  { opacity: 1; }
+    100% { opacity: 0.7; }
+  }
+
+
+  #loading-overlay svg .arc{
+    stroke:#e6189866;
+    fill: transparent;
+    transform-origin: center;
+  }
+
+  #loading-overlay svg .arc.a{
+    animation: spin 2.5s infinite ease;
+  }
+
+  #loading-overlay svg .arc.b{
+    animation: spin-b 2.5s infinite ease;
+  }
+
+  #loading-overlay.static .arc{
+    display: none;
+  }
+
+  #loading-overlay .inner{
+    width: 600px;
+    margin: 0 auto;
+    text-align: center;
+    position: relative;
+  }
+
+  #loading-overlay .loading-circle{
+    stroke: #e6189899;
+    fill: transparent;
+    stroke-width:1;
+    stroke-linecap: round;
+  }

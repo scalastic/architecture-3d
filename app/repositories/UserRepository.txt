@@ -1,0 +1,166 @@
+package repositories
+
+
+import play.api.libs.functional.syntax.toFunctionalBuilderOps
+import play.api.libs.json.{JsArray, JsObject, JsString, JsValue, Json, OFormat, OWrites, Reads, __}
+import play.api.libs.json.Reads._
+import play.modules.reactivemongo.{MongoController, ReactiveMongoApi, ReactiveMongoComponents}
+import reactivemongo.api.{Cursor, ReadPreference}
+import reactivemongo.api.bson.{BSONDocument, BSONObjectID}
+import reactivemongo.api.bson.collection.BSONCollection
+import reactivemongo.api.commands.WriteResult
+// BSON-JSON conversions/collection
+import reactivemongo.play.json.compat._, json2bson.{ toDocumentReader, toDocumentWriter }
+
+import java.util.UUID
+import javax.inject.Inject
+import scala.concurrent.{ExecutionContext, Future}
+
+import play.api.libs.functional.syntax._
+import play.api.libs.json._
+
+
+class UserRepository @Inject()(
+                                implicit ec: ExecutionContext,
+                                reactiveMongoApi: ReactiveMongoApi)
+extends MongoController with ReactiveMongoComponents {{
+
+  val _ = implicitly[reactivemongo.api.bson.BSONDocumentWriter[JsObject]]
+
+  //
+  //
+  // DATABASE
+  //
+  //
+
+  def users: Future[BSONCollection] =
+    reactiveMongoApi.database.map(_.collection[BSONCollection]("users"))
+
+  //
+  //
+  // UTILITIES
+  //
+  //
+
+  val objectIdFormat = OFormat[String](
+    (__ \ "$oid").read[String],
+    OWrites[String]{ s => Json.obj( "$oid" -> s ) }
+  )
+
+  /* JSON user representation
+  {
+    _id: USER_ID,
+    "id" -> "f3cb0f2a-d25f-48ec-b75c-b62273709cfe",
+    "name" -> "John Doe",
+    "createdWith" -> "arcentry",
+    "isFreeAccount" -> false,
+    "paymentPlan" -> "paid",
+    "isPayingUser" -> true,
+    "subscriptionEnd" -> "2023-12-12T18:25:43.511Z",
+    "nextChargeDate" -> "2023-12-12T18:25:43.511Z",
+    "subscribedToPaidDate" -> "2023-12-12T18:25:43.511Z",
+    "email" -> "user@example.com",
+    "lastActiveDocId" -> "d341ef2f-9f9f-4ad8-900b-7c1715d3324a"
+  }
+  */
+
+  /** Full User validator */
+  val validateUser: Reads[JsObject] = (
+    (__ \ "name").json.pickBranch and
+      (__ \ "email").json.pickBranch
+    ).reduce
+
+  /** Writes an ID in Json Extended Notation */
+  val toObjectId = OWrites[String]{ s => Json.obj("_id" -> Json.obj("$oid" -> s)) }
+  val fromObjectId = (__ \ "_id").json.copyFrom( (__ \ "_id" \ "$oid").json.pick )
+
+  /** Generates a new ID and adds it to your JSON using Json extended notation for BSON */
+  val generateId = (__ \ "_id" \ "$oid").json.put( JsString(BSONObjectID.generate.stringify) )
+
+  /** Updates Json by adding both ID */
+  val addMongoId: Reads[JsObject] = __.json.update( (generateId) )
+
+  /** Converts JSON into Mongo update selector by just copying whole object in $set field */
+  val toMongoUpdate = (__ \ "$set").json.copyFrom( __.json.pick )
+
+  /** prunes _id */
+  val outputUser = (__ \ "_id").json.prune
+
+  /** no need to always use Json combinators or transformers, sometimes stay simple */
+  def resOK(data: JsValue) = Json.obj("res" -> "OK") ++ Json.obj("data" -> data)
+  def resKO(error: JsValue) = Json.obj("res" -> "KO") ++ Json.obj("error" -> error)
+
+
+  //
+  //
+  // FUNCTIONALS
+  //
+  //
+
+  def getUserById(id: String): Future[Option[JsObject]] = {
+    // let's do our query
+    val cursor = users.map {
+      // find all people with name `name`
+      _.find(Json.obj("id" -> id))
+        // perform the query and get a cursor of JsObject
+        .one[JsObject](ReadPreference.primary)
+    }
+
+    // gather all the JsObjects in a list
+    val futurePersonsList: Future[List[JsObject]] =
+      cursor.flatMap(_.collect[List](-1, Cursor.FailOnError[List[JsObject]]()))
+
+    // transform the list into a JsArray
+    val futurePersonsJsonArray: Future[JsArray] =
+      futurePersonsList.map { persons => Json.arr(persons) }
+
+    // everything's ok! Let's reply with the array
+    futurePersonsJsonArray.map { persons =>
+      Ok(persons)
+    }
+
+
+
+
+    val q = toObjectId.writes(id)
+      usersCollection.flatMap().find[JsValue](q).headOption.map{
+        case None => NotFound(Json.obj("res" -> "KO", "error" -> s"user with ID $id not found"))
+        case Some(p) =>
+          p.transform(outputPerson).map{ jsonp =>
+            Ok( resOK(Json.obj("person" -> jsonp)) )
+          }.recoverTotal{ e =>
+            BadRequest( resKO(JsError.toFlatJson(e)) )
+          }
+      }
+    }
+    usersCollection.flatMap(_.find(BSONDocument("_id" -> id)).one[JsObject])
+  }
+
+
+
+  def getAll: Future[Seq[JsArray]] =
+    usersCollection.flatMap(_.find(BSONDocument.empty).
+      cursor[JsArray]().collect[Seq](20))
+
+  def addUser(user: JsObject): Future[WriteResult] =
+    usersCollection.flatMap(_.insert.one(
+      user.copy(_id = Some(UUID.randomUUID()))))
+
+  def updateUser(id: UUID, user: User): Future[Option[User]] = {
+    val updateModifier = BSONDocument(
+      f"$$set" -> BSONDocument(
+        "title" -> user.title,
+        "completed" -> user.completed)
+    )
+
+    usersCollection.flatMap(_.findAndUpdate(
+      selector = BSONDocument("_id" -> id),
+      update = updateModifier,
+      fetchNewObject = true).map(_.result[User])
+    )
+  }
+
+  def deleteUser(id: UUID): Future[Option[User]] =
+    usersCollection.flatMap(_.findAndRemove(
+      selector = BSONDocument("_id" -> id)).map(_.result[User]))
+}
