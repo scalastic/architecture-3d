@@ -190,7 +190,7 @@
         config.stripeApiKey = "pk_test_I5cS5gt2oRrTbDZFvc2LEsnq"
     }  else if (isDevelopmentMode) { */
         config.httpRoot = "http://localhost/api/"; //"https://arcentry.com/api/";
-        config.imageRoot = "CONFIG.IMAGEROOT"; //"https://arcentry.com/arcentry-prod-images/";
+        config.imageRoot = "/assets/user-images/"; //"https://arcentry.com/arcentry-prod-images/";
         config.stripeApiKey = "CONFIG.STRIPEAPIKEY"; //"pk_live_ocIHH8sMbicZQLh6Ox990c9k"
     /* } else {
         config.httpRoot = "http://localhost/dev/"; //"https://arcentry.com/dev/";
@@ -41687,7 +41687,7 @@
 }, function(module, exports) {
     const ACCOUNT_PROVIDER_SETTINGS = {
         aws: {
-            logo: "css/img/aws-logo.png",
+            logo: "/assets/images/aws-logo.png",
             resolveFn: "resolveAwsAccessData",
             fields: {
                 region: {
@@ -43219,7 +43219,6 @@
         bindToDocChannel()
         {
             const docId = this.app.userSettings.get("lastActiveDocId");
-            
             if (!docId) {
                 return
             }
@@ -43233,17 +43232,16 @@
             this.channel.bind(TRANSACTION_EVENT, this.onTransactionsFn);
             this.channel.bind(TRANSACTION_EVENT_CLIENT, this.onTransactionsFn);
             this.channel.bind("pusher:subscription_succeeded", (a, b, c) => {});
-            this.channel.bind("pusher:subscription_error", (a, b, c) => {
-                
+            /*this.channel.bind("pusher:subscription_error", (a, b, c) => {
+
                 const msg = `\n                You are not authorized to access the document with id ${docId} - \n                if you feel that this is an error, please email info@example.com.\n                Clicking OK will take you to a fallback`;
                 window.canvas.app.$refs.fullscreenOverlay.showError("Access to document not authorized", msg, () => {
-                    
+
                     canvas.app.$refs.sidebar.$refs.filePanel.setFallbackDoc()
-                    
+
                 })
-                
-            })
-            
+            })*/
+            canvas.app.$refs.sidebar.$refs.filePanel.setFallbackDoc()
         }
         onTransactions(transactions)
         {

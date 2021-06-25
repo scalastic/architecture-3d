@@ -38,7 +38,7 @@ class APIController @Inject()(
 
   private def printPostJsonRequest(request: Request[JsValue], name: String) = {
     val value = request.body
-    logger.info("[" + name + "]: " + value.toString())
+    logger.warn("[" + name + "]: " + value.toString())
   }
 
   // KEY
@@ -123,9 +123,27 @@ class APIController @Inject()(
   def postProcessTransaction(): Action[JsValue] = Action(controllerComponents.parsers.json) { implicit request =>
     printPostJsonRequest(request, request.method + " " + request.path)
 
-    docRepository.updateDocument(request.body.as[Transactions])
+    docRepository.updateDocumentContent(transactions = request.body.as[Transactions])
 
     Ok(Json.parse("""{ "success": true }"""))
+  }
+
+  // FILE
+
+  def getFileList() = Action { implicit request: Request[AnyContent] =>
+    printGetRequest(request, request.method + " " + request.path)
+
+    //Ok(Json.parse("""{ "success": true }"""))
+    Ok(Json.parse("""[
+        {"name":"Sol en ciment",
+        "path":"floor-concrete-texture.jpg",
+        "created":"2021-02-01T09:28:56.321-10:00",
+        "size":"838000"},
+        {"name":"Herbes",
+        "path":"grass-texture.jpg",
+        "created":"2020-11-06T09:28:56.321-10:00",
+        "size":"605000"}
+      ]"""))
   }
 
 }

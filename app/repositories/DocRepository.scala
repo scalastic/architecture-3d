@@ -33,68 +33,76 @@ class DocRepository @Inject()(
     documentsCollection.flatMap(_.insert.one(
       document.copy())) //(_id = Some(ArraySeq(UUID.randomUUID().toString)))))
 
-  def updateDocument(transactions: Transactions) = {
-
-    getDocument(transactions.docId).map {
-      value => value match {
-        case Some(doc) => {
-          val updatedContent = processTransaction(doc.content, transactions)
-          val updateModifier = BSONDocument(
-            f"$$set" -> BSONDocument(
-              "content" -> updatedContent)
-          )
-          documentsCollection.flatMap(_.findAndUpdate(
-            selector = BSONDocument("id" -> doc.id),
-            update = updateModifier,
-            fetchNewObject = true).map(_.result[Document])
-          )
-        }
-        case other => logger.error(s"Updating document failed with transactions: $transactions")
-      }
+  def updateDocumentContent(transactions: Transactions): Future[Any] = getDocument(transactions.docId).map {
+    case Some(doc) => {
+      val updatedContent = processTransactions(doc.content, transactions)
+      val updateModifier = BSONDocument(
+        f"$$set" -> BSONDocument(
+          "content" -> updatedContent)
+      )
+      documentsCollection.flatMap(_.findAndUpdate(
+        selector = BSONDocument("id" -> doc.id),
+        update = updateModifier,
+        fetchNewObject = true).map(_.result[Document])
+      )
     }
-
+    case _ => logger.error(s"Updating document failed for transactions: $transactions")
   }
 
-  def processTransaction(content: Map[String, JsValue], transactions: Transactions) =  {
+  private def processTransactions(content: Map[String, JsValue], transactions: Transactions) =  {
 
-    val updatedContent: collection.mutable.Map[String, JsValue] = collection.mutable.Map[String, JsValue]() ++= content
-    transactions.transactions.foreach { item =>
-      item.action match {
-        case "create" => updatedContent += (item.id -> JsObject(Seq("type" -> JsString(item.`type`.get), "data" -> item.data.get)))
-        case "delete" => updatedContent -= (item.id)
-        case "update" => updatedContent += (item.id -> mergeUpdateTransaction(content(item.id), item))
+    val documentContent: collection.mutable.Map[String, JsValue] = collection.mutable.Map[String, JsValue]() ++= content
+    transactions.transactions.foreach { transaction =>
+      transaction.action match {
+        case "create" => documentContent += createComponent(transaction)
+        case "delete" => documentContent -= deleteComponent(transaction)
+        case "update" => documentContent += updateComponent(documentContent(transaction.id), transaction)
       }
     }
-    updatedContent
+    documentContent
   }
 
-  def mergeUpdateTransaction(content: JsValue, item: Transaction): JsObject = {
+  private def createComponent(transaction: Transaction) = {
+    (transaction.id -> JsObject(Seq("type" -> JsString(transaction.`type`.get), "data" -> transaction.data.get)))
+  }
 
-    val data = item.data.get.as[JsObject]
-    val keyToSearch = data.keys.head
-    val valueToUpdate = data.values.toList.head match {
-      case js: JsObject => js.as[JsObject]
-      case str : JsString => str.as[JsString]
-      case nb: JsNumber => nb.as[JsNumber]
-      case ar: JsArray => ar.as[JsArray]
+  private def deleteComponent(transaction: Transaction) = {
+    (transaction.id)
+  }
+
+  private def updateComponent(component: JsValue, transaction: Transaction) = {
+    (transaction.id -> mergeComponentWithTransaction(component, transaction))
+  }
+
+  private def mergeComponentWithTransaction(component: JsValue, transaction: Transaction): JsObject = {
+
+    val transactionData = transaction.data.getOrElse(JsObject.empty).as[JsObject]
+
+    var updatedComponent = component
+    transactionData.keys.map { key =>
+      updatedComponent = updateComponentByKey(updatedComponent, transactionData, key)
     }
 
-    logger.warn(s"UPDATE key [$keyToSearch] with value [$valueToUpdate]" )
+    updatedComponent.as[JsObject]
+  }
 
-    val jsonUpdater = (__ \ "data" \ keyToSearch).json.update(of[JsValue].map{ case obj: JsValue => valueToUpdate })
-    val jsonAdditionner = (__ \ "data").json.update(__.read[JsObject].map{ o => o ++ Json.obj( keyToSearch -> valueToUpdate ) }
-    )
+  private def updateComponentByKey(component: JsValue, transactionData: JsObject, key: String) = {
+    (component \ "data" \ key) match {
+      case JsDefined(d) =>
+        val jsonUpdater = (__ \ "data" \ key).json.update(of[JsValue].map { case obj: JsValue => transactionData(key) })
+        transformComponent(component, jsonUpdater)
+      case JsUndefined() =>
+        val jsonAdditionner = (__ \ "data").json.update(__.read[JsObject].map { o => o ++ Json.obj(key -> transactionData(key)) })
+        transformComponent(component, jsonAdditionner)
+    }
+  }
 
-    content.transform(jsonUpdater) match {
-      case JsSuccess(value, path) => {
-        logger.warn(s"Update field [$keyToSearch] succeed with value [$valueToUpdate] and result in $value" )
-        value
-      }
-      case JsError(errors) => {
-        logger.error(s"Error $errors when Updating field [$keyToSearch] with value [$valueToUpdate]")
-        content.transform(jsonAdditionner).get.as[JsObject]
-      }
-
+  private def transformComponent(component: JsValue, jsonModifier: Reads[JsObject]): JsValue = {
+    component.transform(jsonModifier) match {
+      case JsSuccess(v,p) => v
+      case JsError(e) =>
+        logger.error(e.toString())
+        component
     }
   }
 
